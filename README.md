@@ -18,11 +18,13 @@ This project reads that same private USB channel on its own. When you press the 
 
 | Capture button | What happens |
 |---|---|
-| Quick press | Screenshot is saved to `Pictures/Screenshots/Backbone_<date>.png` |
-| Hold (about ½ second) | Screen recording **starts**, with a short buzz and a notification |
-| Hold again | Recording **stops** and is saved to `Movies/Backbone_<date>.mp4` |
+| Quick press | Screenshot is saved to `Pictures/Screenshots/Backbone_<date>.png` and a **"Screenshot saved"** notification appears |
+| Hold (about ½ second) | Screen recording **starts**, with a short buzz and a **"Recording started"** notification |
+| Hold again | Recording **stops** and is saved to `Movies/Backbone_<date>.mp4`. The notification changes to **"Recording saved"** |
 
 Long recordings are saved in 30-minute parts automatically.
+
+**Notifications:** every saved screenshot and recording gets its own notification that stays in the pull-down shade until you swipe it away. Tap one to open the file. The notifications come from Android's built-in "Shell" app. If you want them to pop up on screen as well, long-press one and turn on **Pop on screen**, or set the "Shell command" category to high importance.
 
 ## The "Xbox experience" setup
 
@@ -30,8 +32,7 @@ Long recordings are saved in 30-minute parts automatically.
 2. **Home button to game dashboard:**
    - Install a game launcher or dashboard app you like (for example Daijishō, ES-DE, Beacon, or any launcher that shows your games).
    - Install **Button Mapper** and give it the accessibility permission it asks for.
-   - In Button Mapper, find your Backbone's Home button. If it shows up as a key on your phone, set its action to **Launch app → your game launcher**.
-   - Note: Button Mapper can only map buttons that Android sees as normal keys. If the Home button doesn't show up there, Android isn't seeing it as a key on your model.
+   - In Button Mapper, pick the Backbone's **Home** button and set its action to **Launch app → your game launcher**. Android sees it as a normal gamepad key (`BUTTON_MODE`, keycode 110), so Button Mapper detects it right away. This is confirmed on a Backbone with product ID 0x0204.
 3. You no longer need the Backbone app, so feel free to uninstall it. If you keep it installed, this module closes it when the controller is plugged in. Only one app at a time can use the controller's private channel.
 
 ## Requirements
@@ -47,7 +48,7 @@ Long recordings are saved in 30-minute parts automatically.
    ```
    pkg install python
    ```
-2. Download `backbone-capture-magisk-v1.0.zip` from the [Releases page](../../releases).
+2. Download `backbone-capture-magisk-v1.1.zip` from the [Releases page](../../releases).
 3. Open **Magisk → Modules → Install from storage** and pick the zip.
 4. **Reboot.**
 5. Plug in the Backbone and press the capture button. You'll find the screenshot in your gallery.
@@ -80,6 +81,7 @@ Options: `--no-debug` (less output), `--hold-ms 800` (change the hold time).
 
 ## Troubleshooting
 
+- **No notification shows up.** Make sure notifications for the Android **Shell** app are allowed: Settings → Apps → Shell → Notifications. The files are still saved even when no notification appears.
 - **Nothing happens when I press the button.** Check the log:
   `su -c cat /data/local/tmp/backbone_capture.log`
 - **"Termux python not found" in the log.** Install Termux and run `pkg install python`, then replug the controller.
@@ -96,6 +98,7 @@ Open **Magisk → Modules → Backbone Capture Button → Remove**, then reboot.
 - `bb_capture.py`: the listener script, written from scratch in Python using only the standard library. It talks to the controller through Linux usbfs.
 - `module/`: the Magisk module source (`module.prop`, `service.sh`, `customize.sh`, `uninstall.sh`, `META-INF`).
 - `build.sh`: rebuilds the module zip.
+- `CHANGELOG.md`: version history.
 
 ## Disclaimer
 

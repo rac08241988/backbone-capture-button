@@ -10,7 +10,7 @@ Debug mode (default) prints every vendor USB message (except the repeating iAP2 
 and every changed HID report from the controller's /dev/hidraw nodes.
 Plain Python 3 stdlib only. Talks to the controller's vendor USB interface via usbfs.
 """
-import os, sys, glob, time, ctypes, signal, threading, subprocess, queue
+import os, sys, glob, time, ctypes, signal, threading, subprocess, queue, shlex, re
 
 VID = '358a'
 HOLD_MS = 500
@@ -167,10 +167,47 @@ def quiet(cmd, timeout=3):
 def scan(path):
     quiet(['am', 'broadcast', '-a', 'android.intent.action.MEDIA_SCANNER_SCAN_FILE', '-d', 'file://' + path], 10)
 
-def feedback(text, ms=80):
+def vibrate(ms=80):
     if quiet(['cmd', 'vibrator_manager', 'synced', 'oneshot', str(ms)]) != 0:
         quiet(['cmd', 'vibrator', 'vibrate', str(ms)])
-    quiet(['cmd', 'notification', 'post', '-t', 'Backbone capture', 'bbcapture', text])
+
+def media_uri(path, kind):
+    """content:// URI of a freshly scanned file (MediaStore), or None."""
+    name = os.path.basename(path)
+    base = 'content://media/external/%s/media' % kind
+    for _ in range(4):
+        try:
+            out = subprocess.run(['content', 'query', '--uri', base, '--projection', '_id',
+                                  '--where', "_display_name='%s'" % name],
+                                 capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r'_id=(\d+)', out)
+            if m:
+                return '%s/%s' % (base, m.group(1))
+        except Exception:
+            pass
+        time.sleep(1)
+    return None
+
+def _notify(title, text, tag, path=None, mime=None, kind=None):
+    """Post a notification that stays in the shade (same tag = replaces). Tapping opens the file."""
+    cmd = ['cmd', 'notification', 'post', '-S', 'bigtext', '-t', title]
+    if path:
+        uri = media_uri(path, kind) if kind else None
+        if uri:
+            target = 'intent://' + uri[len('content://'):] + '#Intent;scheme=content;'
+        else:
+            target = 'intent://' + path + '#Intent;scheme=file;'
+        target += 'action=android.intent.action.VIEW;type=%s;launchFlags=0x10000001;end' % mime
+        cmd += ['-c', 'activity', target]
+    cmd += [tag, text]
+    for runner in (['su', '2000', '-c', ' '.join(shlex.quote(x) for x in cmd)], cmd):  # shell uid, then root
+        if quiet(runner, 10) == 0:
+            return
+    if path:                                   # tap action rejected? post without it
+        quiet(['cmd', 'notification', 'post', '-S', 'bigtext', '-t', title, tag, text], 10)
+
+def notify(*a, **k):
+    run_async(lambda: _notify(*a, **k))        # never blocks the button loop
 
 def stamp():
     return time.strftime('%Y%m%d_%H%M%S')
@@ -182,6 +219,8 @@ def screenshot():
     if ok:
         log('screenshot saved', path)
         scan(path)
+        notify('Screenshot saved', os.path.basename(path), 'bb_shot_' + stamp(),
+               path, 'image/png', 'images')
     else:
         log('screencap failed, falling back to keyevent 120')
         quiet(['input', 'keyevent', '120'])
@@ -190,6 +229,7 @@ rec_lock = threading.Lock()
 rec_proc = None
 rec_path = None
 rec_on = False
+rec_tag = 'bb_rec'
 time_limit_ok = True
 
 def start_segment():
@@ -224,16 +264,20 @@ def stop_segment():
     scan(path)
 
 def toggle_recording():
-    global rec_on
+    global rec_on, rec_tag
     with rec_lock:
         if not rec_on:
             rec_on = True
-            feedback('Recording started')
+            vibrate()
             start_segment()
+            rec_tag = 'bb_rec_' + stamp()        # this tag is replaced by "Recording saved" later
+            notify('Recording started', 'Hold the capture button again to stop', rec_tag)
         else:
             rec_on = False
+            path = rec_path
             stop_segment()
-            feedback('Recording stopped', 160)
+            vibrate(160)
+            notify('Recording saved', os.path.basename(path), rec_tag, path, 'video/mp4', 'video')
 
 def watchdog():
     with rec_lock:

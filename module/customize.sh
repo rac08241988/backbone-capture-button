@@ -2,7 +2,7 @@
 # Magisk sources this file during install. MODPATH is set by Magisk.
 PY=/data/data/com.termux/files/usr/bin/python
 
-ui_print "- Backbone Capture Button v1.0 by Rattlehead"
+ui_print "- Backbone Capture Button v1.1 by Rattlehead"
 ui_print "- Capture button: press = screenshot, hold = start/stop recording"
 if [ -x "$PY" ]; then
   ui_print "- Found Termux python: $PY"
