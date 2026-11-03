@@ -10,7 +10,7 @@ Debug mode (default) prints every vendor USB message (except the repeating iAP2 
 and every changed HID report from the controller's /dev/hidraw nodes.
 Plain Python 3 stdlib only. Talks to the controller's vendor USB interface via usbfs.
 """
-import os, sys, glob, time, ctypes, signal, threading, subprocess, queue, shlex, re
+import os, sys, glob, time, ctypes, signal, threading, subprocess, queue
 
 VID = '358a'
 HOLD_MS = 500
@@ -171,43 +171,33 @@ def vibrate(ms=80):
     if quiet(['cmd', 'vibrator_manager', 'synced', 'oneshot', str(ms)]) != 0:
         quiet(['cmd', 'vibrator', 'vibrate', str(ms)])
 
-def media_uri(path, kind):
-    """content:// URI of a freshly scanned file (MediaStore), or None."""
-    name = os.path.basename(path)
-    base = 'content://media/external/%s/media' % kind
-    for _ in range(4):
-        try:
-            out = subprocess.run(['content', 'query', '--uri', base, '--projection', '_id',
-                                  '--where', "_display_name='%s'" % name],
-                                 capture_output=True, text=True, timeout=5).stdout
-            m = re.search(r'_id=(\d+)', out)
-            if m:
-                return '%s/%s' % (base, m.group(1))
-        except Exception:
-            pass
-        time.sleep(1)
-    return None
+APP_PKG = 'com.rattlehead.backbonecapture'      # companion app (bundled in the Magisk module)
 
-def _notify(title, text, tag, path=None, mime=None, kind=None):
-    """Post a notification that stays in the shade (same tag = replaces). Tapping opens the file."""
-    cmd = ['cmd', 'notification', 'post', '-S', 'bigtext', '-t', title]
-    if path:
-        uri = media_uri(path, kind) if kind else None
-        if uri:
-            target = 'intent://' + uri[len('content://'):] + '#Intent;scheme=content;'
-        else:
-            target = 'intent://' + path + '#Intent;scheme=file;'
-        target += 'action=android.intent.action.VIEW;type=%s;launchFlags=0x10000001;end' % mime
-        cmd += ['-c', 'activity', target]
-    cmd += [tag, text]
-    for runner in (['su', '2000', '-c', ' '.join(shlex.quote(x) for x in cmd)], cmd):  # shell uid, then root
-        if quiet(runner, 10) == 0:
-            return
-    if path:                                   # tap action rejected? post without it
-        quiet(['cmd', 'notification', 'post', '-S', 'bigtext', '-t', title, tag, text], 10)
+def have_app():
+    try:
+        out = subprocess.run(['pm', 'path', APP_PKG], capture_output=True, text=True, timeout=10).stdout
+        return 'package:' in out
+    except Exception:
+        return False
 
-def notify(*a, **k):
-    run_async(lambda: _notify(*a, **k))        # never blocks the button loop
+def app_cmd(args, what):
+    """Run an am command aimed at the companion app; log the result. True on success."""
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        out = (r.stdout + r.stderr).strip().replace('\n', ' | ')
+        ok = r.returncode == 0 and 'Error' not in out and 'Exception' not in out
+        log('notify: %s -> %s (rc %d) %s' % (what, 'ok' if ok else 'FAILED', r.returncode, out[:300]))
+        return ok
+    except Exception as e:
+        log('notify: %s -> FAILED %s' % (what, e))
+        return False
+
+def shell_notify(title, text, tag):
+    """Fallback when the companion app is missing: plain shell notification (no pop-up)."""
+    def go():
+        rc = quiet(['cmd', 'notification', 'post', '-S', 'bigtext', '-t', title, tag, text], 10)
+        log('notify: shell "%s" rc %d' % (title, rc))
+    run_async(go)
 
 def stamp():
     return time.strftime('%Y%m%d_%H%M%S')
@@ -218,9 +208,11 @@ def screenshot():
     ok = quiet(['screencap', '-p', path], 15) == 0 and os.path.exists(path) and os.path.getsize(path) > 0
     if ok:
         log('screenshot saved', path)
-        scan(path)
-        notify('Screenshot saved', os.path.basename(path), 'bb_shot_' + stamp(),
-               path, 'image/png', 'images')
+        if not (have_app() and app_cmd(['am', 'broadcast', '-f', '0x20', '-n', APP_PKG + '/.EventReceiver',
+                                        '-a', APP_PKG + '.SHOT_SAVED', '--es', 'path', path],
+                                       'screenshot saved')):
+            scan(path)
+            shell_notify('Screenshot saved', os.path.basename(path), 'bb_shot_' + stamp())
     else:
         log('screencap failed, falling back to keyevent 120')
         quiet(['input', 'keyevent', '120'])
@@ -271,13 +263,13 @@ def toggle_recording():
             vibrate()
             start_segment()
             rec_tag = 'bb_rec_' + stamp()        # this tag is replaced by "Recording saved" later
-            notify('Recording started', 'Hold the capture button again to stop', rec_tag)
+            shell_notify('Recording started', 'Hold the capture button again to stop', rec_tag)
         else:
             rec_on = False
             path = rec_path
             stop_segment()
             vibrate(160)
-            notify('Recording saved', os.path.basename(path), rec_tag, path, 'video/mp4', 'video')
+            shell_notify('Recording saved', os.path.basename(path), rec_tag)
 
 def watchdog():
     with rec_lock:
@@ -308,9 +300,19 @@ def on_short():
     log('SHORT press -> screenshot')
     run_async(screenshot)
 
+def app_toggle():
+    """Recording with sound through the companion app; old screenrecord path if the app is missing."""
+    if not rec_on and have_app():
+        vibrate()
+        if app_cmd(['am', 'start', '-n', APP_PKG + '/.RecordActivity', '-a', APP_PKG + '.TOGGLE'],
+                   'toggle recording (app)'):
+            return
+        log('companion app failed; using screenrecord (no audio)')
+    toggle_recording()
+
 def on_long():
     log('LONG hold -> toggle recording')
-    run_async(toggle_recording)
+    run_async(app_toggle)
 
 def handle(state, dur):
     global press_t, long_fired

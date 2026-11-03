@@ -7,6 +7,9 @@ SCRIPT="$MODDIR/bb_capture.py"
 LOG=/data/local/tmp/backbone_capture.log
 MAX_LOG=524288          # 512 KB, one old copy kept as .log.1
 APP=com.playbackbone.android
+CAP=com.rattlehead.backbonecapture       # companion app (toasts, notifications, recording with sound)
+CAP_APK="$MODDIR/BackboneCapture.apk"
+CAP_VER=3                                # versionCode of the bundled APK
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [service] $*" >> "$LOG"; }
 
@@ -26,6 +29,29 @@ present() {
   return 1
 }
 
+# Install/update the bundled companion app, then give it what it needs (all visible in
+# Settings > Apps > Backbone Capture). Errors are logged and ignored.
+install_app() {
+  [ -f "$CAP_APK" ] || return 0
+  have=$(dumpsys package "$CAP" 2>/dev/null | grep -m1 versionCode= | sed 's/.*versionCode=\([0-9]*\).*/\1/')
+  if [ -z "$have" ] || [ "$have" -lt "$CAP_VER" ]; then
+    cp -f "$CAP_APK" /data/local/tmp/BackboneCapture.apk
+    chmod 644 /data/local/tmp/BackboneCapture.apk
+    log "installing companion app (installed: ${have:-none}, bundled: $CAP_VER): $(pm install -r /data/local/tmp/BackboneCapture.apk 2>&1)"
+    rm -f /data/local/tmp/BackboneCapture.apk
+  fi
+  for p in RECORD_AUDIO POST_NOTIFICATIONS READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE; do
+    pm grant "$CAP" "android.permission.$p" >/dev/null 2>&1
+  done
+  appops set "$CAP" PROJECT_MEDIA allow >/dev/null 2>&1        # no "start recording?" prompt
+  appops set "$CAP" POST_NOTIFICATION allow >/dev/null 2>&1
+  if pm path "$CAP" >/dev/null 2>&1; then
+    log "companion app ready ($CAP)"
+  else
+    log "companion app not installed; falling back to screenrecord (no audio) and shell notifications"
+  fi
+}
+
 running() { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }
 
 stop_script() {
@@ -43,6 +69,7 @@ sleep 5
 mkdir -p /data/local/tmp
 cap_log
 log "started (module dir $MODDIR)"
+install_app
 
 pid=""
 fails=0          # quick crashes in a row while the controller stays plugged in

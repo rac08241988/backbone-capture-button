@@ -1,3 +1,11 @@
 *.zip
 __pycache__/
 *.pyc
+*.apk
+*.jks
+*.keystore
+signing.properties
+local.properties
+build/
+.gradle/
+.kotlin/

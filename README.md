@@ -3,7 +3,7 @@
 **Turn your Android phone + Backbone controller into an Xbox-like console. No Backbone app, no ads, no bloat.**
 
 - 🏠 **Home button opens your game dashboard.** Point it at a game launcher using Button Mapper.
-- 📸 **Capture button works again.** Press it to take a screenshot. Hold it to start or stop screen recording.
+- 📸 **Capture button works again.** Press it to take a screenshot. Hold it to start or stop screen recording **with game sound**. A pop-up and a notification confirm every capture.
 - 🚫 **No Backbone app needed.** You don't need its account, ads, or anything running in the background.
 
 Pick up the controller, press Home to get to your games, and press Capture to save a moment, the same way you would on an Xbox.
@@ -18,13 +18,20 @@ This project reads that same private USB channel on its own. When you press the 
 
 | Capture button | What happens |
 |---|---|
-| Quick press | Screenshot is saved to `Pictures/Screenshots/Backbone_<date>.png` and a **"Screenshot saved"** notification appears |
-| Hold (about ½ second) | Screen recording **starts**, with a short buzz and a **"Recording started"** notification |
-| Hold again | Recording **stops** and is saved to `Movies/Backbone_<date>.mp4`. The notification changes to **"Recording saved"** |
+| Quick press | Screenshot is saved to `Pictures/Screenshots/Backbone_<date>.png`. A **"Screenshot saved"** pop-up and notification appear (with a preview) |
+| Hold (about ½ second) | Screen recording **starts** with sound, with a short buzz, a **"Recording started"** pop-up and an ongoing notification with a **Stop** button and timer |
+| Hold again | Recording **stops** and is saved to `Movies/Backbone_<date>.mp4`. A **"Recording saved"** pop-up and notification appear |
 
-Long recordings are saved in 30-minute parts automatically.
+### The companion app (new in v1.2)
 
-**Notifications:** every saved screenshot and recording gets its own notification that stays in the pull-down shade until you swipe it away. Tap one to open the file. The notifications come from Android's built-in "Shell" app. If you want them to pop up on screen as well, long-press one and turn on **Pop on screen**, or set the "Shell command" category to high importance.
+The module now includes a tiny app called **Backbone Capture** (`com.rattlehead.backbonecapture`). It is installed automatically after the first reboot and shows up in your app drawer. It:
+
+- shows the on-screen pop-ups (toasts) and the heads-up notifications. Every saved screenshot and recording gets its own notification that stays in the shade; tap it to open the file.
+- records the screen **with audio** using Android's screen recording API. By default it records the **game/phone sound** (Android 10+). Open the app to switch to **Microphone** or **No audio**.
+
+Because the module runs as root, it pre-approves the app's permissions (microphone/audio capture, notifications and screen capture), so you don't get a "Start recording?" prompt every time. You can see and revoke all of this in **Settings → Apps → Backbone Capture**. If the app is missing or fails, the module falls back to the old behavior (silent `screenrecord` + plain notifications).
+
+Note: some games mark their sound as "do not capture". In those games the video has no game sound; pick **Microphone** in the app if you want sound anyway.
 
 ## The "Xbox experience" setup
 
@@ -48,9 +55,9 @@ Long recordings are saved in 30-minute parts automatically.
    ```
    pkg install python
    ```
-2. Download `backbone-capture-magisk-v1.1.zip` from the [Releases page](../../releases).
+2. Download `backbone-capture-magisk-v1.2.zip` from the [Releases page](../../releases).
 3. Open **Magisk → Modules → Install from storage** and pick the zip.
-4. **Reboot.**
+4. **Reboot.** After boot the module installs the **Backbone Capture** companion app by itself (give it about 10 seconds).
 5. Plug in the Backbone and press the capture button. You'll find the screenshot in your gallery.
 
 ## Test it manually (without the module)
@@ -61,7 +68,7 @@ Plug in the controller, open Termux, and run this (all on one line). Put the scr
 su -c "am force-stop com.playbackbone.android; /data/data/com.termux/files/usr/bin/python /sdcard/Download/bb_capture.py"
 ```
 
-It prints what it finds. Press the capture button and you'll see `capture msg` lines. Press **Ctrl-C** to stop. In Termux, that's Volume Down + C.
+It prints what it finds. (The companion app must already be installed for pop-ups and recording with sound.) Press the capture button and you'll see `capture msg` lines. Press **Ctrl-C** to stop. In Termux, that's Volume Down + C.
 
 Options: `--no-debug` (less output), `--hold-ms 800` (change the hold time).
 
@@ -69,19 +76,23 @@ Options: `--no-debug` (less output), `--hold-ms 800` (change the hold time).
 
 - Screenshots: `/sdcard/Pictures/Screenshots/Backbone_YYYYMMDD_HHMMSS.png`
 - Recordings: `/sdcard/Movies/Backbone_YYYYMMDD_HHMMSS.mp4`
-- Log: `/data/local/tmp/backbone_capture.log`. It stays under about 512 KB, and one older copy is kept as `.log.1`.
+- Log: `/data/local/tmp/backbone_capture.log`. Every notification attempt is logged as a `notify:` line. It stays under about 512 KB, and one older copy is kept as `.log.1`.
 
 ## How the module behaves
 
 - After the phone finishes booting, it checks about every 3 seconds whether a Backbone (USB vendor `358a`) is plugged in.
 - When you plug the controller in, it closes the Backbone app **once** and starts the script.
-- When you unplug the controller, the script saves any running recording and exits. It starts again the next time you plug in.
+- After boot it installs or updates the companion app and re-applies its permissions.
+- When you unplug the controller, the script exits. A recording made by the companion app keeps going until you tap **Stop** in its notification. It starts again the next time you plug in.
 - If the script keeps crashing right after it starts, the module waits longer between tries. After a few crashes it stops trying until you replug the controller.
 - If you turn the module off in Magisk, it stops right away.
 
 ## Troubleshooting
 
-- **No notification shows up.** Make sure notifications for the Android **Shell** app are allowed: Settings → Apps → Shell → Notifications. The files are still saved even when no notification appears.
+- **No pop-up or notification.** Open the **Backbone Capture** app and tap **Test notification**. If nothing appears, allow notifications in Settings → Apps → Backbone Capture → Notifications. Then check the `notify:` lines in the log.
+- **Recording has no sound.** Open the app and check the audio setting. Some games block capturing their sound; choose **Microphone** for those. The "Recording started" pop-up says "no audio: ..." when audio could not be started.
+- **A "Start recording?" prompt appears.** Tap **Start now** once. To pre-approve again, run `su -c appops set com.rattlehead.backbonecapture PROJECT_MEDIA allow`.
+- **Companion app not installed.** Check the log for `installing companion app`. You can also install it by hand from the zip (`BackboneCapture.apk`).
 - **Nothing happens when I press the button.** Check the log:
   `su -c cat /data/local/tmp/backbone_capture.log`
 - **"Termux python not found" in the log.** Install Termux and run `pkg install python`, then replug the controller.
@@ -91,12 +102,13 @@ Options: `--no-debug` (less output), `--hold-ms 800` (change the hold time).
 
 ## Uninstall
 
-Open **Magisk → Modules → Backbone Capture Button → Remove**, then reboot. That removes everything, including the log. Nothing else on your phone is changed.
+Open **Magisk → Modules → Backbone Capture Button → Remove**, then reboot. That removes everything, including the log and the companion app (it is uninstalled after the next boot). Nothing else on your phone is changed.
 
 ## What's in this repo
 
 - `bb_capture.py`: the listener script, written from scratch in Python using only the standard library. It talks to the controller through Linux usbfs.
 - `module/`: the Magisk module source (`module.prop`, `service.sh`, `customize.sh`, `uninstall.sh`, `META-INF`).
+- `companion-app/`: source of the Backbone Capture app (Kotlin, no third-party libraries). Signing keys are not in the repo; build with your own (see `build.sh`).
 - `build.sh`: rebuilds the module zip.
 - `CHANGELOG.md`: version history.
 
