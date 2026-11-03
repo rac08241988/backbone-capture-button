@@ -1,0 +1,6 @@
+id=backbone_capture
+name=Backbone Capture Button
+version=v1.0
+versionCode=1
+author=Rattlehead
+description=Makes the Backbone controller's capture button work without the Backbone app: press = screenshot, hold = start/stop screen recording. Needs Termux + python. Unofficial.
